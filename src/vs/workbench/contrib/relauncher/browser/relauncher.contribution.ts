@@ -340,9 +340,13 @@ export class WorkspaceChangeExtHostRelauncher extends Disposable implements IWor
 		// Restart extension host if first root folder changed (impact on deprecated workspace.rootPath API)
 		const newFirstFolderResource = workspace.folders.length > 0 ? workspace.folders[0].uri : undefined;
 		if (!isEqual(this.firstFolderResource, newFirstFolderResource)) {
+			const hadFirstFolder = !!this.firstFolderResource;
 			this.firstFolderResource = newFirstFolderResource;
 
-			this.extensionHostRestarter.schedule(); // buffer calls to extension host restart
+			// Skip 0→1 folders (#319944): same as adding a folder in an existing workspace
+			if (hadFirstFolder) {
+				this.extensionHostRestarter.schedule(); // buffer calls to extension host restart
+			}
 		}
 	}
 }

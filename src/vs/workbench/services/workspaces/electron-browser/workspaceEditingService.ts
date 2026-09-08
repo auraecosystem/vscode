@@ -6,7 +6,7 @@
 import { localize } from '../../../../nls.js';
 import { IWorkspaceEditingService } from '../common/workspaceEditing.js';
 import { URI } from '../../../../base/common/uri.js';
-import { hasWorkspaceFileExtension, isUntitledWorkspace, isWorkspaceIdentifier, IWorkspaceContextService, toWorkspaceIdentifier } from '../../../../platform/workspace/common/workspace.js';
+import { hasWorkspaceFileExtension, isUntitledWorkspace, isWorkspaceIdentifier, IWorkspaceContextService, toWorkspaceIdentifier, WorkbenchState } from '../../../../platform/workspace/common/workspace.js';
 import { IJSONEditingService } from '../../configuration/common/jsonEditing.js';
 import { IWorkspacesService } from '../../../../platform/workspaces/common/workspaces.js';
 import { WorkspaceService } from '../../configuration/browser/configurationService.js';
@@ -176,9 +176,14 @@ export class NativeWorkspaceEditingService extends AbstractWorkspaceEditingServi
 	}
 
 	async enterWorkspace(workspaceUri: URI): Promise<void> {
-		const stopped = await this.extensionService.stopExtensionHosts(localize('restartExtensionHost.reason', "Opening a multi-root workspace"));
-		if (!stopped) {
-			return;
+		// Skip extension host restart when coming from an empty window (#319944)
+		const fromEmptyWorkspace = this.contextService.getWorkbenchState() === WorkbenchState.EMPTY;
+
+		if (!fromEmptyWorkspace) {
+			const stopped = await this.extensionService.stopExtensionHosts(localize('restartExtensionHost.reason', "Opening a multi-root workspace"));
+			if (!stopped) {
+				return;
+			}
 		}
 
 		const oldWorkspace = toWorkspaceIdentifier(this.contextService.getWorkspace());
@@ -205,7 +210,7 @@ export class NativeWorkspaceEditingService extends AbstractWorkspaceEditingServi
 
 		// Restart the extension host: entering a workspace means a new location for
 		// storage and potentially a change in the workspace.rootPath property.
-		else {
+		else if (!fromEmptyWorkspace) {
 			this.extensionService.startExtensionHosts();
 		}
 	}
