@@ -8,6 +8,7 @@ import type { AnyAuthMethod, AuthenticationType, ConnectConfig } from 'ssh2';
 import { promises as fsp } from 'fs';
 import * as os from 'os';
 import * as cp from 'child_process';
+import { Duplex } from 'stream';
 import { dirname, join, isAbsolute, basename } from '../../../base/common/path.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable, DisposableMap, toDisposable } from '../../../base/common/lifecycle.js';
@@ -73,6 +74,7 @@ import {
 import { ensureRemoteAgentHostCliInstalled, type IRemoteAgentHostCliInstallResult } from './remoteAgentHostCliInstaller.js';
 import { parseSSHConfigHostEntries, parseSSHGOutput, stripSSHComment } from '../common/sshConfigParsing.js';
 import { removeAnsiEscapeCodes } from '../../../base/common/strings.js';
+import { killTree } from '../../../base/node/processes.js';
 
 /** Minimal subset of ssh2.ClientChannel used by this module (duplex stream). */
 interface SSHChannel extends NodeJS.ReadWriteStream {
@@ -101,6 +103,11 @@ interface SSHClient {
 	exec(command: string, callback: (err: Error | undefined, stream: SSHChannel) => void): SSHClient;
 	forwardOut(srcIP: string, srcPort: number, dstIP: string, dstPort: number, callback: (err: Error | undefined, channel: SSHChannel) => void): SSHClient;
 	end(): void;
+}
+
+interface ISSHProxyTransport {
+	readonly socket: Duplex;
+	dispose(): void;
 }
 
 const LOG_PREFIX = '[SSHRemoteAgentHost]';
@@ -1197,6 +1204,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 			authMethod: SSHAuthMethod.Agent,
 			privateKeyPath,
 			identityAgent: resolved.identityAgent,
+			proxyJump: resolved.proxyJump,
 			name,
 			sshConfigHost,
 			remoteAgentHostCommand,
@@ -1342,6 +1350,134 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 		return parseSSHGOutput(stdout);
 	}
 
+	private _parseProxyJump(proxyJump: string): { destination: string; port?: number } {
+		if (proxyJump.includes(',')) {
+			throw new Error(localize('ssh.proxyJumpChainUnsupported', "SSH ProxyJump chains are not supported."));
+		}
+
+		const atIndex = proxyJump.lastIndexOf('@');
+		const user = atIndex === -1 ? undefined : proxyJump.substring(0, atIndex);
+		const hostAndPort = proxyJump.substring(atIndex + 1);
+		let host: string;
+		let portText: string | undefined;
+		if (hostAndPort.startsWith('[')) {
+			const bracketIndex = hostAndPort.indexOf(']');
+			host = hostAndPort.substring(0, bracketIndex + 1);
+			const suffix = hostAndPort.substring(bracketIndex + 1);
+			if (bracketIndex <= 1 ||
+				hostAndPort.indexOf('[', 1) !== -1 ||
+				hostAndPort.indexOf(']', bracketIndex + 1) !== -1 ||
+				(suffix && !suffix.startsWith(':'))) {
+				throw new Error(localize('ssh.invalidProxyJump', "The SSH ProxyJump configuration is invalid."));
+			}
+			portText = suffix ? suffix.substring(1) : undefined;
+		} else {
+			if (hostAndPort.includes('[') || hostAndPort.includes(']')) {
+				throw new Error(localize('ssh.invalidProxyJump', "The SSH ProxyJump configuration is invalid."));
+			}
+			const colonIndex = hostAndPort.lastIndexOf(':');
+			if (colonIndex !== -1 &&
+				hostAndPort.indexOf(':') !== colonIndex) {
+				throw new Error(localize('ssh.invalidProxyJump', "The SSH ProxyJump configuration is invalid."));
+			}
+			host = colonIndex === -1 ? hostAndPort : hostAndPort.substring(0, colonIndex);
+			portText = colonIndex === -1 ? undefined : hostAndPort.substring(colonIndex + 1);
+		}
+		const invalidPort = portText !== undefined &&
+			(!portText || [...portText].some(character => character < '0' || character > '9'));
+		const port = invalidPort ? undefined : portText === undefined ? undefined : Number(portText);
+		if (!host ||
+			user === '' ||
+			invalidPort ||
+			(port !== undefined && (port < 1 || port > 65535))) {
+			throw new Error(localize('ssh.invalidProxyJump', "The SSH ProxyJump configuration is invalid."));
+		}
+		return {
+			destination: `${user ? `${user}@` : ''}${host}`,
+			port,
+		};
+	}
+
+	protected _spawnProxyProcess(command: string, args: readonly string[]): cp.ChildProcessWithoutNullStreams {
+		return cp.spawn(command, args, {
+			stdio: ['pipe', 'pipe', 'pipe'],
+			windowsHide: true,
+		});
+	}
+
+	protected _killProxyProcess(pid: number): Promise<void> {
+		return killTree(pid, true);
+	}
+
+	protected async _createProxyTransport(config: ISSHAgentHostConfig): Promise<ISSHProxyTransport | undefined> {
+		if (!config.sshConfigHost ||
+			!config.proxyJump) {
+			return undefined;
+		}
+
+		const jump = this._parseProxyJump(config.proxyJump);
+		const targetHost = config.host.includes(':') ? `[${config.host}]` : config.host;
+		const args = ['-o', 'BatchMode=yes'];
+		if (jump.port !== undefined) {
+			args.push('-p', String(jump.port));
+		}
+		args.push('-W', `${targetHost}:${config.port ?? 22}`, '--', jump.destination);
+		const child = this._spawnProxyProcess('ssh', args);
+		await new Promise<void>((resolve, reject) => {
+			const onError = (error: Error) => {
+				child.removeListener('spawn', onSpawn);
+				child.stdin.destroy();
+				child.stdout.destroy();
+				child.stderr.destroy();
+				reject(error);
+			};
+			const onSpawn = () => {
+				child.removeListener('error', onError);
+				resolve();
+			};
+			child.once('error', onError);
+			child.once('spawn', onSpawn);
+		});
+		child.stderr.resume();
+		const socket = Duplex.from({ readable: child.stdout, writable: child.stdin });
+		let disposed = false;
+		const dispose = () => {
+			if (disposed) {
+				return;
+			}
+			disposed = true;
+			socket.destroy();
+			child.stdin.destroy();
+			child.stdout.destroy();
+			child.stderr.destroy();
+			if (child.pid !== undefined &&
+				child.exitCode === null &&
+				child.signalCode === null) {
+				void this._killProxyProcess(child.pid).catch(() => {
+					if (child.exitCode === null &&
+						child.signalCode === null) {
+						child.kill();
+					}
+				});
+			}
+		};
+		child.once('error', error => socket.destroy(error));
+		child.once('exit', (code, signal) => {
+			if (!disposed &&
+				(code !== 0 || signal !== null)) {
+				socket.destroy(new Error(localize(
+					'ssh.proxyProcessExited',
+					"SSH proxy process exited before the connection closed (code {0}, signal {1}).",
+					code ?? 'none',
+					signal ?? 'none',
+				)));
+			}
+		});
+		socket.on('error', () => { });
+		socket.once('close', dispose);
+		return { socket, dispose };
+	}
+
 	protected async _connectSSH(
 		config: ISSHAgentHostConfig,
 		connectionKey?: string,
@@ -1485,6 +1621,16 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 		};
 
 		const client = await this._createSSHClient();
+		let proxyTransport: ISSHProxyTransport | undefined;
+		try {
+			proxyTransport = await this._createProxyTransport(config);
+			if (proxyTransport) {
+				connectConfig.sock = proxyTransport.socket;
+			}
+		} catch (error) {
+			client.end();
+			throw error;
+		}
 		return new Promise<SSHClient>((resolve, reject) => {
 			let settled = false;
 			let deadlineTimer: IHandshakeDeadlineHandle | undefined;
@@ -1526,6 +1672,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 				clearDeadline();
 				cancelLiveKbiRequests();
 				cancelLiveHostKeyRequests();
+				proxyTransport?.dispose();
 				if (endClient) {
 					client.end();
 				}
@@ -1555,6 +1702,7 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 			// connect promise would never settle and any outstanding host key
 			// prompt would be left on screen forever.
 			client.on('close', () => {
+				proxyTransport?.dispose();
 				rejectConnect(
 					hostKeyDenied
 						? new SSHHostKeyDeniedError(displayHost)
@@ -1573,7 +1721,11 @@ export class SSHRemoteAgentHostMainService extends Disposable implements ISSHRem
 			});
 
 			armDeadline(HANDSHAKE_TIMEOUT_MS);
-			client.connect(connectConfig);
+			try {
+				client.connect(connectConfig);
+			} catch (error) {
+				rejectConnect(error instanceof Error ? error : new Error(String(error)), false);
+			}
 		});
 	}
 
