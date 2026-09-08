@@ -30,7 +30,7 @@ import { IAgentHostSessionOpenTelemetry } from '../agentHostSessionOpenTelemetry
 import { IByokLmBridgeRegistry } from '../byokLmBridgeRegistry.js';
 import { IByokLmProxyService, type IByokLmProxyHandle } from './byokLmProxyService.js';
 import type { ICopilotMcpServerInfo, ICopilotPluginInfo } from './copilotAgent.js';
-import { CopilotGitHubTokenProvider } from './copilotGitHubTokenProvider.js';
+import { CopilotGitHubSessionCredentials } from './copilotGitHubCredentials.js';
 import { toSdkHooks, toSdkInstructionDirectories, toSdkMcpServers, toSdkMcpServersFromConfigMap, toSdkSessionCustomAgents, toSdkSkillDirectories } from './copilotPluginConverters.js';
 import { CopilotSessionWrapper } from './copilotSessionWrapper.js';
 import { ShellManager, createShellTools, type IUnsandboxedCommandConfirmationRequest } from './copilotShellTools.js';
@@ -263,10 +263,6 @@ interface ICopilotSessionLaunchBase {
 	 */
 	readonly workspaceless?: boolean;
 }
-
-export type CopilotGitHubSessionCredentials =
-	| { readonly kind: 'token'; readonly token: string | undefined }
-	| { readonly kind: 'provider'; readonly provider: CopilotGitHubTokenProvider };
 
 export interface ICopilotCreateSessionLaunchPlan extends ICopilotSessionLaunchBase {
 	readonly kind: 'create';
@@ -1029,9 +1025,7 @@ export class CopilotSessionLauncher implements ICopilotSessionLauncher {
 			pluginDirectories: coalesce(plugins.map(p => p.pluginDir))
 				.filter(d => d.scheme === Schemas.file).map(d => d.fsPath),
 			tools: promptOverrides.tools,
-			...(plan.githubCredentials.kind === 'provider'
-				? { gitHubTokenProvider: plan.githubCredentials.provider.provideToken }
-				: { gitHubToken: plan.githubCredentials.token }),
+			...plan.githubCredentials.sdkSessionOptions,
 			// Enable infinite sessions so the SDK provisions a workspace
 			// directory (containing `plan.md`, `checkpoints/`, `files/`).
 			// The workspace is required for plan mode to work — without

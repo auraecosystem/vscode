@@ -915,7 +915,7 @@ export class CopilotAgentSession extends Disposable {
 	 * non-destructive idle release to avoid disconnecting mid-turn.
 	 */
 	get hasActiveTurn(): boolean { return this._currentTurn.value !== undefined; }
-	get usesStaticGitHubToken(): boolean { return this._launchPlan.githubCredentials.kind === 'token'; }
+	get usesStaticGitHubToken(): boolean { return this._launchPlan.githubCredentials.usesStaticToken; }
 	get chatUri(): URI { return this._chatChannelUri; }
 	get currentTurnId(): string | undefined { return this._currentTurn.value?.id; }
 
@@ -1077,7 +1077,6 @@ export class CopilotAgentSession extends Disposable {
 	 */
 	private readonly _shellInitScriptInstanceId = generateUuid().substring(0, 8);
 	private readonly _launchPlan: CopilotSessionLaunchPlan;
-	private _staticGitHubToken: string | undefined;
 	private _detectInterruptedTurnOnRestore: boolean;
 	/** Notifies the agent that this chat's turn ended. See {@link ICopilotAgentSessionOptions.onTurnEnded}. */
 	private readonly _onTurnEnded: () => void;
@@ -1166,7 +1165,6 @@ export class CopilotAgentSession extends Disposable {
 		this._onDidSessionProgress = options.onDidSessionProgress;
 		this._sessionLauncher = options.sessionLauncher;
 		this._launchPlan = options.launchPlan;
-		this._staticGitHubToken = options.launchPlan.githubCredentials.kind === 'token' ? options.launchPlan.githubCredentials.token : undefined;
 		this._detectInterruptedTurnOnRestore = options.launchPlan.kind === 'resume';
 		this._onTurnEnded = options.onTurnEnded ?? (() => { });
 		this._shellManager = options.shellManager;
@@ -2249,7 +2247,7 @@ export class CopilotAgentSession extends Disposable {
 			credentials: { type: 'token', host, token },
 		});
 		if (result.success) {
-			this._staticGitHubToken = token;
+			this._launchPlan.githubCredentials.updateStaticToken(token);
 		}
 		return result;
 	}
@@ -4727,13 +4725,11 @@ export class CopilotAgentSession extends Disposable {
 	}
 
 	private _isGitHubTokenCurrent(token: string): boolean {
-		const credentials = this._launchPlan.githubCredentials;
-		return credentials.kind === 'provider' ? credentials.provider.isCurrentToken(token) : this._staticGitHubToken === token;
+		return this._launchPlan.githubCredentials.isCurrentToken(token);
 	}
 
 	private get _currentGitHubToken(): string | undefined {
-		const credentials = this._launchPlan.githubCredentials;
-		return credentials.kind === 'provider' ? credentials.provider.token : this._staticGitHubToken;
+		return this._launchPlan.githubCredentials.token;
 	}
 
 	private _cancelActiveRepoInfoTelemetry(): void {

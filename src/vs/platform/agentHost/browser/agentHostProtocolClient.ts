@@ -37,7 +37,7 @@ import { AhpErrorCodes, JsonRpcErrorCodes } from '../common/state/protocol/error
 import { ChatSourceKind, ContentEncoding, ResourceRequestParams, type CompletionsParams, type CompletionsResult, type CreateTerminalParams, type ResolveSessionConfigResult, type SessionConfigCompletionsResult } from '../common/state/protocol/commands.js';
 import type { InvokeChangesetOperationParams, InvokeChangesetOperationResult } from '../common/state/protocol/channels-changeset/commands.js';
 import { decodeBase64, encodeBase64 } from '../../../base/common/buffer.js';
-import { getRemainingTimeInSeconds } from '../../../base/common/date.js';
+import { getExpirationTime, getRemainingTimeInSeconds, isExpired } from '../../../base/common/date.js';
 import type { FetchAutomationRunsParams, FetchAutomationRunsResult, ListAutomationTriggerDefinitionsParams, ListAutomationTriggerDefinitionsResult, RunAutomationParams, RunAutomationResult } from '../common/state/protocol/channels-automation/commands.js';
 import { ILoadEstimator, LoadEstimator } from '../../../base/parts/ipc/common/ipc.net.js';
 import { ITelemetryService, TelemetryLevel, TELEMETRY_CRASH_REPORTER_SETTING_ID, TELEMETRY_OLD_SETTING_ID, TELEMETRY_SETTING_ID } from '../../telemetry/common/telemetry.js';
@@ -1009,7 +1009,7 @@ export class AgentHostProtocolClient extends Disposable implements IAgentConnect
 				if (initialAuthentication) {
 					const normalizedParams = this._normalizeAuthenticationParams(initialAuthentication);
 					initialAuthenticationKey = this._authenticationKey(normalizedParams);
-					const expiresAt = normalizedParams.expiresIn === undefined ? undefined : Date.now() + normalizedParams.expiresIn * 1000;
+					const expiresAt = getExpirationTime(normalizedParams.expiresIn);
 					this._authentication.set(initialAuthenticationKey, { params: normalizedParams, expiresAt });
 				}
 			} catch (error) {
@@ -1020,11 +1020,12 @@ export class AgentHostProtocolClient extends Disposable implements IAgentConnect
 			}
 		}
 		await Promise.all([...this._authentication.entries()].map(async ([key, authentication]) => {
-			const expiresIn = getRemainingTimeInSeconds(authentication.expiresAt);
-			if (authentication.expiresAt !== undefined && expiresIn === undefined) {
+			const now = Date.now();
+			if (isExpired(authentication.expiresAt, now)) {
 				this._authentication.delete(key);
 				return;
 			}
+			const expiresIn = getRemainingTimeInSeconds(authentication.expiresAt, now);
 			const params = authentication.params;
 			try {
 				await this._dispatchRequest<CommandMap['authenticate']['result']>('authenticate', {
@@ -1420,7 +1421,7 @@ export class AgentHostProtocolClient extends Disposable implements IAgentConnect
 	 */
 	async authenticate(params: AuthenticateParams): Promise<AuthenticateResult> {
 		const normalizedParams = this._normalizeAuthenticationParams(params);
-		const expiresAt = params.expiresIn === undefined ? undefined : Date.now() + params.expiresIn * 1000;
+		const expiresAt = getExpirationTime(params.expiresIn);
 		await this._sendRequest('authenticate', {
 			channel: ROOT_STATE_URI,
 			...normalizedParams,

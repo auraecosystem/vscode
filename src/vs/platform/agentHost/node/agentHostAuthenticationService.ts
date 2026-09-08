@@ -3,7 +3,7 @@
  *  Licensed under the MIT License. See License.txt in the project root for license information.
  *--------------------------------------------------------------------------------------------*/
 
-import { getRemainingTimeInSeconds } from '../../../base/common/date.js';
+import { getExpirationTime, getRemainingTimeInSeconds, isExpired } from '../../../base/common/date.js';
 import { Emitter, Event } from '../../../base/common/event.js';
 import { Disposable } from '../../../base/common/lifecycle.js';
 import { createDecorator } from '../../instantiation/common/instantiation.js';
@@ -53,8 +53,7 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 
 	async authenticate(params: AuthenticateParams, providers: Iterable<IAgent>): Promise<AuthenticateResult> {
 		this._logService.trace(`[AgentHostAuthenticationService] authenticate called: resource=${params.resource}`);
-		const expiresAt = params.expiresIn === undefined ? undefined : Date.now() + params.expiresIn * 1000;
-		const expiresIn = getRemainingTimeInSeconds(expiresAt);
+		const expiresAt = getExpirationTime(params.expiresIn);
 		const providerList = [...providers];
 		// Multiple providers may share the same protected resource (e.g.
 		// both Copilot CLI and Claude consume the Copilot-scoped OAuth credential).
@@ -67,7 +66,7 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 			p => p.getProtectedResources().some(r => r.resource === params.resource),
 		);
 		const settled = await Promise.allSettled(
-			matching.map(p => p.authenticate(params.resource, params.token, expiresIn)),
+			matching.map(p => p.authenticate(params.resource, params.token, params.expiresIn)),
 		);
 		let authenticated = false;
 		let rejected = false;
@@ -122,11 +121,12 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 	async replay(provider: IAgent): Promise<void> {
 		const protectedResources = new Set(provider.getProtectedResources().map(resource => resource.resource));
 		for (const [key, stored] of this._tokens) {
-			const expiresIn = getRemainingTimeInSeconds(stored.expiresAt);
-			if (stored.expiresAt !== undefined && expiresIn === undefined) {
+			const now = Date.now();
+			if (isExpired(stored.expiresAt, now)) {
 				this._tokens.delete(key);
 				continue;
 			}
+			const expiresIn = getRemainingTimeInSeconds(stored.expiresAt, now);
 			const params: AuthenticateParams = { resource: stored.resource, scopes: stored.scopes, token: stored.token, expiresIn };
 			if (protectedResources.has(stored.resource)) {
 				try {
@@ -148,7 +148,7 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 	getAuthToken(request: IAgentHostAuthTokenRequest): string | undefined {
 		const scopes = this._normalizeScopes(request.scopes);
 		const exact = this._tokens.get(this._key(request.resource, scopes));
-		if (exact && !this._isExpired(exact)) {
+		if (exact && !isExpired(exact.expiresAt)) {
 			return exact.token;
 		}
 		if (scopes.length === 0) {
@@ -158,7 +158,7 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 		const requested = new Set(scopes);
 		let best: IStoredAuthToken | undefined;
 		for (const candidate of this._tokens.values()) {
-			if (candidate.resource !== request.resource || candidate.scopes.length === 0 || this._isExpired(candidate)) {
+			if (candidate.resource !== request.resource || candidate.scopes.length === 0 || isExpired(candidate.expiresAt)) {
 				continue;
 			}
 			if (!this._containsAll(candidate.scopes, requested)) {
@@ -175,7 +175,7 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 		// Compatibility for clients that resolved the right token before scopes
 		// were forwarded through the authenticate command.
 		const unscoped = this._tokens.get(this._key(request.resource, []));
-		return unscoped && !this._isExpired(unscoped) ? unscoped.token : undefined;
+		return unscoped && !isExpired(unscoped.expiresAt) ? unscoped.token : undefined;
 	}
 
 	private _containsAll(scopes: readonly string[], requested: ReadonlySet<string>): boolean {
@@ -195,7 +195,4 @@ export class AgentHostAuthenticationService extends Disposable implements IAgent
 		return scopes ? [...new Set(scopes)].sort() : [];
 	}
 
-	private _isExpired(token: IStoredAuthToken): boolean {
-		return token.expiresAt !== undefined && token.expiresAt <= Date.now();
-	}
 }
