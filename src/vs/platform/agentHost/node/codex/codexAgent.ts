@@ -4600,6 +4600,8 @@ export class CodexAgent extends Disposable implements IAgent {
 
 			const conn = await this._ensureConnection();
 			const resolvedModel = parseCodexModelSelection(model);
+			this._applySessionHookTrustState(threadConfig, await this._buildSessionHookTrustState(conn.client, workingDirectory.fsPath));
+			this._assertCurrentConnection(conn);
 			const startResult = await conn.client.request<'thread/start', { thread: { id: string } }>('thread/start', {
 				cwd: workingDirectory.fsPath,
 				model: resolvedModel.modelId,
@@ -4960,6 +4962,12 @@ export class CodexAgent extends Disposable implements IAgent {
 			forkConnection = sourceSession
 				? (await this._ensureThreadConnection(sourceSession)).connection
 				: await this._ensureConnection();
+			const forkCwd = forkManagedWorkingDirectory?.fsPath ?? runtimeWorkspaceRoots?.[0] ?? sourcePrimary?.fsPath;
+			const forkConfig: Record<string, JsonValue> = {
+				'features.image_generation': this._imageGenerationEnabledForModelProvider(resolvedModel?.modelProvider ?? sourceRead.thread.modelProvider),
+			};
+			this._applySessionHookTrustState(forkConfig, await this._buildSessionHookTrustState(forkConnection.client, forkCwd));
+			this._assertCurrentConnection(forkConnection);
 			forkResult = await forkConnection.client.request<'thread/fork', ThreadForkResponse>('thread/fork', {
 				threadId: sourceThreadId,
 				...(forkManagedWorkingDirectory ? {
@@ -4969,7 +4977,7 @@ export class CodexAgent extends Disposable implements IAgent {
 					runtimeWorkspaceRoots,
 				} : {}),
 				...(resolvedModel ? { model: resolvedModel.modelId, modelProvider: resolvedModel.modelProvider } : {}),
-				config: { 'features.image_generation': this._imageGenerationEnabledForModelProvider(resolvedModel?.modelProvider ?? sourceRead.thread.modelProvider) },
+				config: forkConfig,
 				approvalPolicy,
 				sandbox: sandboxMode,
 				approvalsReviewer,
@@ -5212,6 +5220,11 @@ export class CodexAgent extends Disposable implements IAgent {
 		// Resolve the process only after every filesystem/configuration await so a
 		// connection that died during preparation is never used for thread/start.
 		const conn = await this._ensureConnection();
+		this._applySessionHookTrustState(threadConfig, await this._buildSessionHookTrustState(conn.client, session.workingDirectory.fsPath));
+		if (session.disposed || !session.chatChannel) {
+			return;
+		}
+		this._assertCurrentConnection(conn);
 		const startResult = await conn.client.request<'thread/start', ThreadStartResponse>('thread/start', {
 			cwd: session.workingDirectory.fsPath,
 			...(runtimeWorkspaceRoots?.length ? { runtimeWorkspaceRoots } : {}),
@@ -6255,6 +6268,11 @@ export class CodexAgent extends Disposable implements IAgent {
 				if (session.disposed) {
 					throw new CancellationError();
 				}
+				const resumeConfig = { ...customizationLaunch.config };
+				this._applySessionHookTrustState(resumeConfig, await this._buildSessionHookTrustState(conn.client, session.workingDirectory?.fsPath));
+				if (session.disposed) {
+					throw new CancellationError();
+				}
 				this._assertCurrentConnection(conn);
 				const resumeResult = await conn.client.request<'thread/resume', ThreadResumeResponse>(
 					'thread/resume',
@@ -6263,7 +6281,7 @@ export class CodexAgent extends Disposable implements IAgent {
 						threadId,
 						mcpServers,
 						runtimeWorkspaceRoots,
-						customizationLaunch.config,
+						resumeConfig,
 						customizationLaunch.developerInstructions,
 						this._imageGenerationEnabledForModelProvider(resolvedModel.modelProvider),
 					),
@@ -7200,6 +7218,38 @@ export class CodexAgent extends Disposable implements IAgent {
 				.catch(err => { this._logService.warn(`[Codex] hooks/list failed: ${err instanceof Error ? err.message : String(err)}`); return undefined; }),
 		]);
 		return [...codexSkillsToContainers(skills), ...codexHooksToContainers(hooks)];
+	}
+
+	/** Builds per-thread trust for the project hooks Codex discovered from the primary workspace. */
+	private async _buildSessionHookTrustState(client: ICodexAppServerClient, cwd: string | undefined): Promise<Record<string, JsonValue>> {
+		if (!cwd || !await codexDirectoryHasHooks(this._fileService, URI.file(cwd))) {
+			return {};
+		}
+
+		let response: HooksListResponse;
+		try {
+			response = await client.request<'hooks/list', HooksListResponse>('hooks/list', { cwds: [cwd] });
+		} catch (error) {
+			this._logService.warn(`[Codex] hooks/list for session hook trust failed: ${error instanceof Error ? error.message : String(error)}`);
+			return {};
+		}
+
+		const trust: Record<string, JsonValue> = {};
+		for (const entry of response.data) {
+			for (const hook of entry.hooks) {
+				if (hook.source === 'project' && !hook.isManaged && hook.currentHash) {
+					trust[hook.key] = { trusted_hash: hook.currentHash };
+				}
+			}
+		}
+		return trust;
+	}
+
+	/** Adds a non-empty hook trust map to the per-thread Codex config. */
+	private _applySessionHookTrustState(config: Record<string, JsonValue>, trust: Record<string, JsonValue>): void {
+		if (Object.keys(trust).length > 0) {
+			config['hooks.state'] = trust;
+		}
 	}
 
 	/**
