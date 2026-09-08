@@ -397,7 +397,7 @@ suite('ChatPetWidget', () => {
 					runLayerClass: false,
 					isolation: 'auto',
 					fadeVisible: false,
-					persistentFadeVisible: true,
+					persistentFadeVisible: false,
 				},
 			},
 		});
