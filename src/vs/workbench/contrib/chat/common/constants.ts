@@ -107,6 +107,7 @@ export enum ChatConfiguration {
 
 	ChatCustomizationsStructuredPreviewEnabled = 'chat.customizations.structuredPreview.enabled',
 	ChatCustomizationsPromptMigrationEnabled = 'chat.customizations.promptMigration.enabled',
+	ChatCustomizationsAgentFilesMigrationEnabled = 'chat.customizations.agentFilesMigration.enabled',
 	ChatCustomizationsUserDataMigrationEnabled = 'chat.customizations.userDataMigration.enabled',
 	ChatCustomizationsLocationsMigrationEnabled = 'chat.customizations.locationsMigration.enabled',
 	ChatCustomizationsMigrationHint = 'chat.customizations.migrationHint',

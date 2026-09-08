@@ -339,6 +339,7 @@ suite('aiCustomizationManagementEditor', () => {
 		const configurationService = createConfigurationServiceStub({
 			[ChatConfiguration.ChatCustomizationsPromptMigrationEnabled]: false,
 			[ChatConfiguration.ChatCustomizationsUserDataMigrationEnabled]: false,
+			[ChatConfiguration.ChatCustomizationsAgentFilesMigrationEnabled]: false,
 			[ChatConfiguration.ChatCustomizationsLocationsMigrationEnabled]: false,
 		}) as IConfigurationService & { setValue(key: string, value: unknown): void };
 		const editor = createTestEditor(undefined, configurationService);
@@ -355,6 +356,13 @@ suite('aiCustomizationManagementEditor', () => {
 				type: PromptsType.agent,
 				source: PromptFileSource.UserData,
 			} as MigratableConfiguration]],
+			[CustomizationMigrationCategoryId.AgentFiles, [{
+				uri: URI.file('/workspace/.github/agents/reviewer.agent.md'),
+				storage: PromptsStorage.local,
+				type: PromptsType.agent,
+				source: PromptFileSource.GitHubWorkspace,
+				hasLocalHandoffs: true,
+			} as MigratableConfiguration]],
 			[CustomizationMigrationCategoryId.ConfiguredLocations, [{
 				uri: URI.file('/workspace/custom-skills/release/SKILL.md'),
 				storage: PromptsStorage.local,
@@ -369,6 +377,8 @@ suite('aiCustomizationManagementEditor', () => {
 		editor.refreshCustomizationMigrationUi();
 		configurationService.setValue(ChatConfiguration.ChatCustomizationsUserDataMigrationEnabled, true);
 		editor.refreshCustomizationMigrationUi();
+		configurationService.setValue(ChatConfiguration.ChatCustomizationsAgentFilesMigrationEnabled, true);
+		editor.refreshCustomizationMigrationUi();
 		configurationService.setValue(ChatConfiguration.ChatCustomizationsPromptMigrationEnabled, true);
 		editor.refreshCustomizationMigrationUi();
 		configurationService.setValue(ChatConfiguration.ChatCustomizationsLocationsMigrationEnabled, true);
@@ -378,8 +388,9 @@ suite('aiCustomizationManagementEditor', () => {
 		assert.deepStrictEqual(welcomePageCalls.map(categories => categories.map(category => category.id)), [
 			[],
 			[CustomizationMigrationCategoryId.UserData],
-			[CustomizationMigrationCategoryId.PromptFiles, CustomizationMigrationCategoryId.UserData],
-			[CustomizationMigrationCategoryId.PromptFiles, CustomizationMigrationCategoryId.UserData, CustomizationMigrationCategoryId.ConfiguredLocations],
+			[CustomizationMigrationCategoryId.UserData, CustomizationMigrationCategoryId.AgentFiles],
+			[CustomizationMigrationCategoryId.PromptFiles, CustomizationMigrationCategoryId.UserData, CustomizationMigrationCategoryId.AgentFiles],
+			[CustomizationMigrationCategoryId.PromptFiles, CustomizationMigrationCategoryId.UserData, CustomizationMigrationCategoryId.AgentFiles, CustomizationMigrationCategoryId.ConfiguredLocations],
 		]);
 		editor.editorPreviewDisposables.dispose();
 	});

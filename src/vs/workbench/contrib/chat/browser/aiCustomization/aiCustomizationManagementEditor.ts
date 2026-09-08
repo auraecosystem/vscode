@@ -106,7 +106,7 @@ import { EmbeddedExtensionToolsDetail } from './embeddedExtensionToolsDetail.js'
 import { ICustomizationHarnessService, type ICustomizationSourceFolder } from '../../common/customizationHarnessService.js';
 import { ChatConfiguration } from '../../common/constants.js';
 import { AICustomizationWelcomePage, type ICustomizationMigrationCategorySummary } from './aiCustomizationWelcomePage.js';
-import { type CustomizationMigrationTargetFolders, type IMigratedCustomizationsResult, migrateCustomizations } from './customizationMigration.js';
+import { type CustomizationMigrationTargetFolders, type IMigratedCustomizationsResult, migrateAgentFilesForAgentHost, migrateCustomizations } from './customizationMigration.js';
 import { CUSTOMIZATION_MIGRATION_CATEGORIES, CustomizationMigrationCategoryId, getCustomizationMigrationCategory, type ICustomizationMigrationBanner, type ICustomizationMigrationCategory } from './customizationMigrationCategories.js';
 import { IViewsService } from '../../../../services/views/common/viewsService.js';
 import { ILabelService } from '../../../../../platform/label/common/label.js';
@@ -1485,26 +1485,28 @@ export class AICustomizationManagementEditor extends EditorPane {
 		try {
 			const settingsToClear = this.getConfiguredLocationSettingsToClear(category, customizations);
 			const sessionResource = this.harnessService.activeSessionResource.get();
-			const targetFolders = await this.resolveCustomizationMigrationTargetFolders(customizations, this.customizationMigrationTargetFoldersByType, sessionResource);
-			if (!targetFolders || !this.isCustomizationMigrationSessionActive(sessionResource)) {
+			const targetFolders = category.migrateInPlace
+				? undefined
+				: await this.resolveCustomizationMigrationTargetFolders(customizations, this.customizationMigrationTargetFoldersByType, sessionResource);
+			if ((!category.migrateInPlace && !targetFolders) || !this.isCustomizationMigrationSessionActive(sessionResource)) {
 				return;
 			}
 
 			const confirmation = category.getConfirmation(
 				customizations,
 				this.getActiveHarnessLabel(),
-				this.getCustomizationMigrationDestinationLabel(
+				targetFolders ? this.getCustomizationMigrationDestinationLabel(
 					[...targetFolders.values()].flatMap(foldersByStorage => [...foldersByStorage.values()]),
-				),
+				) : undefined,
 			);
 			const confirmResult = await this.dialogService.confirm({
 				type: 'question',
 				message: confirmation.message,
 				detail: confirmation.detail,
-				checkbox: {
+				checkbox: confirmation.deleteOriginalsLabel ? {
 					label: confirmation.deleteOriginalsLabel,
 					checked: true,
-				},
+				} : undefined,
 				primaryButton: confirmation.primaryButton,
 			});
 			if (!confirmResult.confirmed || !this.isCustomizationMigrationSessionActive(sessionResource)) {
@@ -1512,7 +1514,7 @@ export class AICustomizationManagementEditor extends EditorPane {
 			}
 
 			const deleteOriginalFiles = confirmResult.checkboxChecked !== false;
-			const migrationResult = await this.runCustomizationMigration(customizations, targetFolders, deleteOriginalFiles);
+			const migrationResult = await this.runCustomizationMigration(category, customizations, targetFolders, deleteOriginalFiles);
 			const { migratedCount, failedCustomizationFileNames, unsupportedHeaderKeys, migratedCustomizations } = migrationResult;
 
 			if (failedCustomizationFileNames.length > 0) {
@@ -1540,7 +1542,7 @@ export class AICustomizationManagementEditor extends EditorPane {
 				}
 			}
 
-			if (deleteOriginalFiles) {
+			if (deleteOriginalFiles || category.migrateInPlace) {
 				await this.refreshCustomizationMigrationInfo();
 			}
 
@@ -1549,7 +1551,7 @@ export class AICustomizationManagementEditor extends EditorPane {
 				? category.getMigratedWithReviewMessage(migratedCount, unsupportedKeysLabel)
 				: category.getMigratedMessage(migratedCount));
 
-			if (deleteOriginalFiles) {
+			if (deleteOriginalFiles || category.migrateInPlace) {
 				void this.revealMigratedCustomizations(migratedCustomizations);
 			}
 		} finally {
@@ -1600,9 +1602,15 @@ export class AICustomizationManagementEditor extends EditorPane {
 		}
 	}
 
-	private async runCustomizationMigration(customizations: readonly MigratableConfiguration[], targetFolders: CustomizationMigrationTargetFolders, deleteOriginalFiles: boolean): Promise<IMigratedCustomizationsResult> {
+	private async runCustomizationMigration(category: ICustomizationMigrationCategory, customizations: readonly MigratableConfiguration[], targetFolders: CustomizationMigrationTargetFolders | undefined, deleteOriginalFiles: boolean): Promise<IMigratedCustomizationsResult> {
 		this.customizationMigrationWritesInProgress = true;
 		try {
+			if (category.migrateInPlace) {
+				return await migrateAgentFilesForAgentHost(customizations, this.fileService, onUnexpectedError);
+			}
+			if (!targetFolders) {
+				throw new Error('Expected target folders for customization migration');
+			}
 			return await migrateCustomizations(
 				customizations,
 				targetFolders,

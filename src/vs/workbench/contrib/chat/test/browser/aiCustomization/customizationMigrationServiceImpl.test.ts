@@ -16,6 +16,7 @@ import { IAgentHostCustomizationService } from '../../../browser/agentSessions/a
 import { AgentHostMcpServerApplicability, AgentHostMcpServerDelivery, AgentHostMcpServerEnablementState, AgentHostMcpServerSourceKind, AgentHostMcpSupportReason, IAgentHostMcpServerSupportSnapshot } from '../../../browser/agentSessions/agentHost/agentHostMcpServerSupport.js';
 import { SessionType } from '../../../common/chatSessionsService.js';
 import { ICustomizationHarnessService, IHarnessDescriptor } from '../../../common/customizationHarnessService.js';
+import { PromptFileParser } from '../../../common/promptSyntax/promptFileParser.js';
 import { PromptFileSource, PromptsType } from '../../../common/promptSyntax/promptTypes.js';
 import { CustomizationMigrationHintTarget, CustomizationMigrationType } from '../../../common/promptSyntax/service/customizationMigrationService.js';
 import { IPromptPath, PromptsStorage } from '../../../common/promptSyntax/service/promptsService.js';
@@ -24,13 +25,17 @@ import { MockPromptsService } from '../../common/promptSyntax/service/mockPrompt
 class TestPromptsService extends MockPromptsService {
 	readonly requestedTypes: PromptsType[] = [];
 
-	constructor(private readonly files: readonly IPromptPath[]) {
+	constructor(private readonly files: readonly IPromptPath[], private readonly contents = new Map<string, string>()) {
 		super();
 	}
 
 	override async listPromptFiles(type: PromptsType): Promise<readonly IPromptPath[]> {
 		this.requestedTypes.push(type);
 		return this.files.filter(file => file.type === type);
+	}
+
+	override async parseNew(uri: URI) {
+		return new PromptFileParser().parse(uri, this.contents.get(uri.path) ?? '');
 	}
 }
 
@@ -91,7 +96,18 @@ suite('CustomizationMigrationService', () => {
 			{ uri: URI.file('/workspace/custom-skills/release/SKILL.md'), storage: PromptsStorage.local, type: PromptsType.skill, source: PromptFileSource.ConfigWorkspace },
 			{ uri: URI.file('/workspace/.github/skills/already-supported/SKILL.md'), storage: PromptsStorage.local, type: PromptsType.skill, source: PromptFileSource.ConfigWorkspace },
 			{ uri: URI.file('/home/test/custom-instructions/style.instructions.md'), storage: PromptsStorage.user, type: PromptsType.instructions, source: PromptFileSource.ConfigPersonal },
-		]));
+		], new Map([
+			['/home/test/.copilot/agents/planner.agent.md', [
+				'---',
+				'name: planner',
+				'handoffs:',
+				'  - agent: implementer',
+				'    label: Implement',
+				'    prompt: Implement the plan',
+				'---',
+				'Plan the work.',
+			].join('\n')],
+		])));
 		const harnessService = new TestCustomizationHarnessService();
 		const snapshot: IAgentHostMcpServerSupportSnapshot = {
 			servers: [
@@ -227,6 +243,11 @@ suite('CustomizationMigrationService', () => {
 					],
 				},
 				{
+					type: 'agentFiles',
+					files: ['/home/test/.copilot/agents/planner.agent.md'],
+					candidates: ['/home/test/.copilot/agents/planner.agent.md'],
+				},
+				{
 					type: 'configuredLocations',
 					files: [
 						'/home/test/custom-agents/architect.agent.md',
@@ -253,6 +274,7 @@ suite('CustomizationMigrationService', () => {
 			localMigrations: [
 				{ type: 'userData', files: [], candidates: [] },
 				{ type: 'promptFiles', files: [], candidates: [] },
+				{ type: 'agentFiles', files: [], candidates: [] },
 				{ type: 'configuredLocations', files: [], candidates: [] },
 				{
 					type: 'mcpServers',
@@ -265,13 +287,13 @@ suite('CustomizationMigrationService', () => {
 				},
 			],
 			hint: {
-				message: 'Found 2 workspace and 3 user customizations that are present but not used by Copilot and could be migrated. Found 1 MCP server that is not fully supported by Copilot.',
+				message: 'Found 2 workspace and 3 user customizations that are present but not used by Copilot and could be migrated. Found 1 agent file with a handoff that Copilot ignores and could be updated. Found 1 MCP server that is not fully supported by Copilot.',
 				target: CustomizationMigrationHintTarget.FileMigrations,
 			},
 			localHint: undefined,
 			requestedTypes: [
-				PromptsType.agent, PromptsType.instructions, PromptsType.prompt, PromptsType.agent, PromptsType.instructions, PromptsType.skill,
-				PromptsType.agent, PromptsType.instructions, PromptsType.prompt, PromptsType.agent, PromptsType.instructions, PromptsType.skill,
+				PromptsType.agent, PromptsType.instructions, PromptsType.prompt, PromptsType.agent, PromptsType.agent, PromptsType.instructions, PromptsType.skill,
+				PromptsType.agent, PromptsType.instructions, PromptsType.prompt, PromptsType.agent, PromptsType.agent, PromptsType.instructions, PromptsType.skill,
 			],
 			requestedSourceFolderTypes: [
 				PromptsType.agent, PromptsType.agent, PromptsType.agent, PromptsType.agent,
