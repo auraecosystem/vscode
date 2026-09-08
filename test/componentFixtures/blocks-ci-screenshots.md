@@ -252,6 +252,33 @@
 #### editor/inlineChatZoneWidget/InlineChatZoneWidgetTerminated/Light
 ![screenshot](https://hediet-screenshots.azurewebsites.net/images/a29cfc0bf4510b57c82d9eae0d974babe7035042456326be861308cae609a1b5)
 
+#### editor/wordWrapIndicator/WordWrapIndicator/Dark
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/471a5f842a698ec04322549274596e648fa5536992f5a7ec77ebb159400b1db0)
+
+#### editor/wordWrapIndicator/WordWrapIndicator/DarkHighContrast
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/799849a20645cac509474cf898ae5cf5350ea6d084c0d70e73d0d7beb8f9dfa3)
+
+#### editor/wordWrapIndicator/WordWrapIndicator/Light
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/4eb16a782eccaca8da66f155c4098f548b8b4dd78b71625f41a12a252feef94b)
+
+#### editor/wordWrapIndicator/WordWrapIndicatorDisabled/Dark
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/365c5179dca2fdc1a9e6e4d54b4182d9a1139043a4263da689221dc21bf6e777)
+
+#### editor/wordWrapIndicator/WordWrapIndicatorDisabled/Light
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/bfd14bc97613141a7bb9914a204d04b4d2e4f1cd3cedfd806201827fdfa6b05c)
+
+#### editor/wordWrapIndicator/WordWrapIndicatorVariableLineHeight/Dark
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/4bea888e8ddca897be942c3e6b1ad1c1133d1c69b767653315a15616a949d5e1)
+
+#### editor/wordWrapIndicator/WordWrapIndicatorVariableLineHeight/Light
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/c69d1c163cfe0a8ea5aa87f0e2c7a62a9b5f539e709dd7f019710e605c2adfe9)
+
+#### editor/wordWrapIndicator/WordWrapIndicatorViewportWrapping/Dark
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/0a3931c75b30eb758e716cf56b1788fe1c9c91d4f2327876bc403c1ca6072c73)
+
+#### editor/wordWrapIndicator/WordWrapIndicatorViewportWrapping/Light
+![screenshot](https://hediet-screenshots.azurewebsites.net/images/1f2102f074add31ddc69b8ff29eab8fc9e7abdaf3806f99395a4bf97384a6acf)
+
 #### sessions/accountMenu/petAchievementBadges/chatPetAchievementBadges/AllBadges/Dark
 ![screenshot](https://hediet-screenshots.azurewebsites.net/images/2f3f859c302172469115f4e7c5245b7006bdb5cad9b43d2a69c9046a99ec88ce)
 
