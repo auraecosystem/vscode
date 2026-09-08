@@ -552,6 +552,25 @@ export const AgentHostShowExternalSessionsConfigKey = 'showExternalSessions';
 
 export { ChatExternalSessionsMode as AgentHostExternalSessionsMode };
 
+/** Root config key controlling automatic archival of inactive sessions with merged pull requests. */
+export const AgentHostAutoArchiveMergedSessionsAfterDaysConfigKey = 'autoArchiveMergedSessionsAfterDays';
+
+/** Root config key controlling permanent deletion of automatically archived sessions with merged pull requests. */
+export const AgentHostAutoDeleteArchivedMergedSessionsAfterDaysConfigKey = 'autoDeleteArchivedMergedSessionsAfterDays';
+
+/** Root config key controlling automatic worktree removal for sessions with merged pull requests. */
+export const AgentHostAutoRemoveWorktreesAfterMergeConfigKey = 'autoRemoveWorktreesAfterMerge';
+
+export function isAgentHostWorktreeCleanupEnabled(autoRemoveWorktreesAfterMerge: unknown, archiveAfterDays: unknown, deleteAfterDays: unknown): boolean {
+	return autoRemoveWorktreesAfterMerge !== false
+		|| isAgentHostSessionLifecycleThresholdEnabled(archiveAfterDays)
+		|| isAgentHostSessionLifecycleThresholdEnabled(deleteAfterDays);
+}
+
+function isAgentHostSessionLifecycleThresholdEnabled(value: unknown): boolean {
+	return value === 1 || value === 7 || value === 15 || value === 30;
+}
+
 /**
  * Root config key forwarded from the renderer that gates multiple-working-directory
  * support for the Copilot provider. When `true`, the Copilot provider advertises
@@ -867,6 +886,26 @@ export const platformRootSchema = createSchema({
 			localize('agentHost.config.showExternalSessions.last30Days', "Show external sessions updated in the last 30 days."),
 		],
 		default: ChatExternalSessionsMode.None,
+	}),
+	[AgentHostAutoArchiveMergedSessionsAfterDaysConfigKey]: schemaProperty<number>({
+		type: 'number',
+		title: localize('agentHost.config.autoArchiveMergedSessionsAfterDays.title', "Auto-Archive Merged Sessions"),
+		description: localize('agentHost.config.autoArchiveMergedSessionsAfterDays.description', "Number of inactive days after which a session with a merged pull request is automatically archived. Zero disables automatic archival."),
+		enum: [0, 1, 7, 15, 30],
+		default: 0,
+	}),
+	[AgentHostAutoDeleteArchivedMergedSessionsAfterDaysConfigKey]: schemaProperty<number>({
+		type: 'number',
+		title: localize('agentHost.config.autoDeleteArchivedMergedSessionsAfterDays.title', "Auto-Delete Archived Merged Sessions"),
+		description: localize('agentHost.config.autoDeleteArchivedMergedSessionsAfterDays.description', "Number of days after automatic archival before a session with a merged pull request is permanently deleted. Zero disables permanent deletion."),
+		enum: [0, 1, 7, 15, 30],
+		default: 0,
+	}),
+	[AgentHostAutoRemoveWorktreesAfterMergeConfigKey]: schemaProperty<boolean>({
+		type: 'boolean',
+		title: localize('agentHost.config.autoRemoveWorktreesAfterMerge.title', "Auto-Remove Worktrees After Merge"),
+		description: localize('agentHost.config.autoRemoveWorktreesAfterMerge.description', "Whether worktrees for inactive sessions are automatically removed after their pull request is merged. Worktrees are only removed when the branch tracks an upstream, has no unpushed commits, and has no uncommitted changes."),
+		default: true,
 	}),
 	[AgentHostCopilotMultiRootEnabledConfigKey]: schemaProperty<boolean>({
 		type: 'boolean',
