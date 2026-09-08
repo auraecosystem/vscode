@@ -403,6 +403,7 @@ async function connectToConfiguredSSHHost(
 			privateKeyPath: defaultKeyPath,
 			identityAgent: resolvedConfig.identityAgent,
 			agentForward: resolvedConfig.forwardAgent || undefined,
+			proxyJump: resolvedConfig.proxyJump,
 			name: suggestedName,
 			sshConfigHost: hostAlias,
 		};
