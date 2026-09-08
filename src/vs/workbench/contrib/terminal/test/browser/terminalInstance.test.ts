@@ -886,4 +886,55 @@ suite('Workbench - TerminalInstance', () => {
 			strictEqual(result, undefined);
 		});
 	});
+
+	suite('attachToElement and detachFromElement', () => {
+		test('should clear drag and drop observer on detachFromElement', () => {
+			const wrapper = document.createElement('div');
+			const container = document.createElement('div');
+			container.appendChild(wrapper);
+
+			let cleared = false;
+			const instance = {
+				_wrapperElement: wrapper,
+				_container: container,
+				_dndObserver: {
+					clear() {
+						cleared = true;
+					}
+				},
+				detachFromElement: TerminalInstance.prototype.detachFromElement
+			};
+
+			instance.detachFromElement();
+			strictEqual(instance._container, undefined);
+			strictEqual(cleared, true);
+			strictEqual(container.contains(wrapper), false);
+		});
+
+		test('should not initialize drag and drop if detached before deferred init runs', async () => {
+			const wrapper = document.createElement('div');
+			const container = document.createElement('div');
+
+			let initDndCalled = false;
+			const instance = {
+				_wrapperElement: wrapper,
+				_container: undefined as HTMLElement | undefined,
+				_store: { isDisposed: false },
+				_attachBarrier: { isOpen: () => true, open: () => {} },
+				_dndObserver: { clear() {} },
+				xterm: undefined,
+				_initDragAndDrop() {
+					initDndCalled = true;
+				},
+				attachToElement: TerminalInstance.prototype.attachToElement,
+				detachFromElement: TerminalInstance.prototype.detachFromElement
+			};
+
+			instance.attachToElement(container);
+			instance.detachFromElement();
+
+			await new Promise(resolve => setTimeout(resolve, 10));
+			strictEqual(initDndCalled, false);
+		});
+	});
 });
