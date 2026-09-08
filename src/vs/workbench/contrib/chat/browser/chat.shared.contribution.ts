@@ -2894,9 +2894,7 @@ class ChatAgentSettingContribution extends Disposable implements IWorkbenchContr
 		this.newChatButtonExperimentIcon = ChatContextKeys.newChatButtonExperimentIcon.bindTo(this.contextKeyService);
 		this.registerMaxRequestsSetting();
 		this.registerNewChatButtonIcon();
-		this.registerDefaultModeSetting();
 	}
-
 
 	private registerMaxRequestsSetting(): void {
 		let lastNode: IConfigurationNode | undefined;
@@ -2937,23 +2935,6 @@ class ChatAgentSettingContribution extends Disposable implements IWorkbenchContr
 		});
 	}
 
-	private registerDefaultModeSetting(): void {
-		this.experimentService.getTreatment<string>('chatDefaultNewSessionMode').then(value => {
-			const node: IConfigurationNode = {
-				id: 'chatSidebar',
-				title: nls.localize('interactiveSessionConfigurationTitle', "Chat"),
-				type: 'object',
-				properties: {
-					[ChatConfiguration.DefaultNewSessionMode]: {
-						type: 'string',
-						description: nls.localize('chat.newSession.defaultMode', "The default mode for new chat sessions. When empty, the chat view's default mode is used."),
-						default: typeof value === 'string' ? value : '',
-					}
-				}
-			};
-			configurationRegistry.updateConfigurations({ add: [node], remove: [] });
-		});
-	}
 }
 
 class ChatForegroundSessionCountContribution extends Disposable implements IWorkbenchContribution {
