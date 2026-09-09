@@ -1,0 +1,2 @@
+dotnet <COMMAND> [-d|--diagnostics] [-h|--help] [--verbosity <LEVEL>]
+    [command-options] [arguments]
