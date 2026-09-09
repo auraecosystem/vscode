@@ -1,0 +1,9 @@
+"enhancedContainerIsolation": {
+  "locked": true,  // This locks the entire ECI section
+  "value": true,   // This enables ECI
+  "dockerSocketMount": {  // These are sub-settings
+    "imageList": {
+      "images": ["docker.io/testcontainers/ryuk:*"]
+    }
+  }
+}
